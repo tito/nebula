@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "nebula"
+version = "0.1.0"
+description = ""
+authors = ["Mathieu Virbel <mat@meltingrocks.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+python-dotenv = "^1.0.1"
+pipecat-ai = {extras = ["deepgram", "openai", "silero", "websocket"], version = "^0.0.39"}
+sqlite-vec = "^0.1.1"
+sqlite-rembed = "^0.0.1a9"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

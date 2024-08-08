@@ -28,33 +28,34 @@ from openai.types.chat import ChatCompletionToolParam
 from loguru import logger
 from dotenv import load_dotenv
 
+from nebula.memory import SQLiteVecMemory
+
 load_dotenv(override=True)
 
 logger.remove(0)
 logger.add(sys.stderr, level="DEBUG")
-
-
-async def start_append_memory(llm):
-    pass
+db = SQLiteVecMemory("memory.db")
 
 
 async def user_append_memory(llm, args):
-    db.execute(
-        "INSERT INTO memory VALUES (?, rembed('text-embedding-3-small', ?))",
-        (args["note"], args["note"]),
-    )
-    db.commit()
+    db.write_memory(args["note"])
     return [{"role": "system", "content": "Note added, say done when finished."}]
 
 
 async def user_query_memory(llm, args):
     query = args["query"]
+    query = db.query_memory(query)
+
+    notes = []
+    for row in query:
+        notes.append(f"- {row['created_at']}: {row['note']}")
+    notes = "\n".join(notes)
 
     return [
         {
             "role": "system",
             "content": f"""
-    Here are your notes:
+    Notes found that match the query:
     {notes}
     
     You can answer to the user now.
@@ -84,7 +85,6 @@ async def main():
         llm.register_function(
             "write_memory",
             user_append_memory,
-            start_callback=start_append_memory,
         )
         llm.register_function(
             "query_memory",
@@ -136,7 +136,7 @@ async def main():
         messages = [
             {
                 "role": "system",
-                "content": "You are a helpful LLM in a WebRTC call. Your goal is to demonstrate your capabilities in a succinct way. Your output will be converted to audio so don't include special characters in your answers. Respond to what the user said in a creative and helpful way.",
+                "content": "You are a helpful AI assistant in a WebRTC call. Your objective is to showcase your abilities clearly and effectively. Since your output will be converted to audio, avoid using special characters. Focus on capturing and recalling key points, and respond to the user's statements in a concise, creative, and helpful manner",
             },
         ]
 

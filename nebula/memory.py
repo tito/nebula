@@ -1,6 +1,14 @@
 import sqlite3
 import sqlite_vec
 import sqlite_rembed
+from pydantic import BaseModel
+
+
+class MemoryResult(BaseModel):
+    rowid: int
+    note: str
+    created_at: str
+    distance: float = 0
 
 
 class Memory:
@@ -14,6 +22,7 @@ class Memory:
 class SQLiteVecMemory:
     def __init__(self, filename):
         self.db = sqlite3.connect("memory.db")
+        self.db.row_factory = sqlite3.Row
         self.db.enable_load_extension(True)
         sqlite_vec.load(self.db)
         sqlite_rembed.load(self.db)
@@ -41,28 +50,32 @@ class SQLiteVecMemory:
         """)
         self.db.commit()
 
-    def get_memory_by_note(self, note):
-        return self.db.execute(
+    def get_memory_by_note(self, note: str) -> MemoryResult | None:
+        result = self.db.execute(
             "SELECT * FROM memory WHERE note = ?",
             (note,),
         ).fetchone()
+        if result:
+            return MemoryResult.parse_obj(dict(result))
 
-    def write_memory(self, note):
+    def write_memory(self, note: str):
         if self.get_memory_by_note(note):
-            # already exists
             return
         self.db.execute(
             "INSERT INTO memory (note) VALUES (?)",
             (note,),
         )
         self.db.execute(
-            "INSERT INTO vec_memory(rowid, embeddings) VALUES (last_insert_rowid(), rembed('text-embedding-3-small', ?))",
+            """
+            INSERT INTO vec_memory(rowid, embeddings) VALUES (
+            last_insert_rowid(), rembed('text-embedding-3-small', ?))
+            """,
             (note,),
         )
         self.db.commit()
 
-    def query_memory(self, query):
-        return self.db.execute(
+    def query_memory(self, query, limit=10) -> list[MemoryResult]:
+        results = self.db.execute(
             """
         WITH MATCHES AS (
           SELECT
@@ -71,7 +84,7 @@ class SQLiteVecMemory:
           FROM vec_memory
           WHERE embeddings MATCH rembed('text-embedding-3-small', ?)
           ORDER BY distance
-          LIMIT 3
+          LIMIT ?
         )
         SELECT
           memory.rowid,
@@ -81,8 +94,9 @@ class SQLiteVecMemory:
         FROM matches
         LEFT JOIN memory ON memory.rowid = matches.rowid;
         """,
-            (query,),
+            (query, limit),
         )
+        return [MemoryResult.parse_obj(dict(row)) for row in results]
 
 
 if __name__ == "__main__":
@@ -96,10 +110,10 @@ if __name__ == "__main__":
     questions = [
         "What is my name ?",
         "How many cats do I have ?",
-        "What did i learn on cooking recently ?"
+        "What did i learn on cooking recently ?",
     ]
     for question in questions:
         print("- Q:", question)
         for row in db.query_memory(question):
-            print(row)
+            print(dict(row))
         print()

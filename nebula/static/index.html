@@ -1,95 +1,149 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
   <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <script src="https://cdn.jsdelivr.net/npm/protobufjs@7.X.X/dist/protobuf.min.js"></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/alpinejs@3.X.X/dist/cdn.min.js"
+    ></script>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Raleway:ital,wght@0,100..900;1,100..900&display=swap"
+      rel="stylesheet"
+    />
     <title>Nebula assistant</title>
+    <style>
+      body {
+        background: radial-gradient(
+            circle at 30% 30%,
+            rgba(5, 0, 15, 0.8),
+            transparent
+          ),
+          radial-gradient(circle at 70% 70%, rgba(10, 0, 30, 0.6), transparent),
+          radial-gradient(circle at 50% 50%, rgba(15, 0, 45, 0.5), transparent),
+          radial-gradient(circle at 80% 20%, rgba(20, 0, 60, 0.4), transparent),
+          linear-gradient(120deg, rgba(0, 0, 10, 1), rgba(5, 0, 20, 1));
+        background-size: cover;
+        height: 100vh;
+        margin: 0;
+        padding: 20px;
+        color: white;
+      }
+
+      .raleway {
+        font-family: "Raleway", sans-serif;
+        font-optical-sizing: auto;
+        font-weight: 400;
+        font-style: normal;
+      }
+    </style>
   </head>
 
-  <body>
-    <h1>Nebula Assistant</h1>
-    <h3><div id="progressText">Loading, wait...</div></h2>
-    <button id="startAudioBtn">Start Audio</button>
-    <button id="stopAudioBtn">Stop Audio</button>
+  <body class="raleway">
+    <div
+      x-data="{
+      isReady: false,
+      isListening: false,
+      startAudio: () => {},
+      stopAudio: () => {},
+    }"
+      id="app"
+      class="container"
+    >
+      <div class="is-flex is-flex-direction-column">
+        <div class="columns">
+          <div class="column is-narrow">
+            <img
+              src="/static/icon.webp"
+              alt="Nebula"
+              style="width: 100px; height: 100px"
+            />
+          </div>
+          <div class="column">
+            <h1 class="is-size-3">Nebula Assistant</h1>
+            <div x-show="!isReady">Initializing...</div>
+            <button x-show="isReady && !isListening" @click="startAudio()" class="button">Start</button>
+            <button x-show="isReady && isListening" @click="stopAudio()" class="button">Stop</button>
+          </div>
+        </div>
+      </div>
+      <div class="block">
+        hello
+      </div>
+    </div>
+
     <script>
-      const SAMPLE_RATE = 16000;
-      const NUM_CHANNELS = 1;
-      const PLAY_TIME_RESET_THRESHOLD_MS = 1.0;
+      function init(data) {
+        const SAMPLE_RATE = 16000;
+        const NUM_CHANNELS = 1;
+        const PLAY_TIME_RESET_THRESHOLD_MS = 1.0;
 
-      // The protobuf type. We will load it later.
-      let Frame = null;
+        let Frame = null;
+        let ws = null;
+        let audioContext = null;
+        let source = null;
+        let microphoneStream = null;
+        let scriptProcessor = null;
+        let playTime = 0;
+        let lastMessageTime = 0;
+        let isPlaying = false;
 
-      // The websocket connection.
-      let ws = null;
+        let startBtn = document.getElementById("startAudioBtn");
+        let stopBtn = document.getElementById("stopAudioBtn");
 
-      // The audio context
-      let audioContext = null;
-
-      // The audio context media stream source
-      let source = null;
-
-      // The microphone stream from getUserMedia. SHould be sampled to the
-      // proper sample rate.
-      let microphoneStream = null;
-
-      // Script processor to get data from microphone.
-      let scriptProcessor = null;
-
-      // AudioContext play time.
-      let playTime = 0;
-
-      // Last time we received a websocket message.
-      let lastMessageTime = 0;
-
-      // Whether we should be playing audio.
-      let isPlaying = false;
-
-      let startBtn = document.getElementById('startAudioBtn');
-      let stopBtn = document.getElementById('stopAudioBtn');
-
-      const proto = protobuf.load("frames.proto", (err, root) => {
+        const proto = protobuf.load("frames.proto", (err, root) => {
           if (err) {
-              throw err;
+            throw err;
           }
           Frame = root.lookupType("pipecat.Frame");
-          const progressText = document.getElementById("progressText");
-          progressText.textContent = "I'm ready! Click on Start Audio to begin.";
+          data.isReady = true;
+          data.isListening = false;
+        });
 
-          startBtn.disabled = false;
-          stopBtn.disabled = true;
-      });
+        function initWebSocket() {
+          ws = new WebSocket("ws://localhost:8765");
 
-      function initWebSocket() {
-          ws = new WebSocket('ws://localhost:8765');
-
-          ws.addEventListener('open', () => console.log('WebSocket connection established.'));
-          ws.addEventListener('message', handleWebSocketMessage);
-          ws.addEventListener('close', (event) => {
-              console.log("WebSocket connection closed.", event.code, event.reason);
-              stopAudio(false);
+          ws.addEventListener("open", () =>
+            console.log("WebSocket connection established."),
+          );
+          ws.addEventListener("message", handleWebSocketMessage);
+          ws.addEventListener("close", (event) => {
+            console.log(
+              "WebSocket connection closed.",
+              event.code,
+              event.reason,
+            );
+            stopAudio(false);
           });
-          ws.addEventListener('error', (event) => console.error('WebSocket error:', event));
-      }
+          ws.addEventListener("error", (event) =>
+            console.error("WebSocket error:", event),
+          );
+        }
 
-      async function handleWebSocketMessage(event) {
+        async function handleWebSocketMessage(event) {
           const arrayBuffer = await event.data.arrayBuffer();
           if (isPlaying) {
-              enqueueAudioFromProto(arrayBuffer);
+            enqueueAudioFromProto(arrayBuffer);
           }
-      }
+        }
 
-      function enqueueAudioFromProto(arrayBuffer) {
+        function enqueueAudioFromProto(arrayBuffer) {
           const parsedFrame = Frame.decode(new Uint8Array(arrayBuffer));
           if (!parsedFrame?.audio) {
-              return false;
+            return false;
           }
 
           // Reset play time if it's been a while we haven't played anything.
           const diffTime = audioContext.currentTime - lastMessageTime;
-          if ((playTime == 0) || (diffTime > PLAY_TIME_RESET_THRESHOLD_MS)) {
-              playTime = audioContext.currentTime;
+          if (playTime == 0 || diffTime > PLAY_TIME_RESET_THRESHOLD_MS) {
+            playTime = audioContext.currentTime;
           }
           lastMessageTime = audioContext.currentTime;
 
@@ -98,52 +152,56 @@
           const audioVector = Array.from(parsedFrame.audio.audio);
           const audioArray = new Uint8Array(audioVector);
 
-          audioContext.decodeAudioData(audioArray.buffer, function(buffer) {
-              const source = new AudioBufferSourceNode(audioContext);
-              source.buffer = buffer;
-              source.start(playTime);
-              source.connect(audioContext.destination);
-              playTime = playTime + buffer.duration;
+          audioContext.decodeAudioData(audioArray.buffer, function (buffer) {
+            const source = new AudioBufferSourceNode(audioContext);
+            source.buffer = buffer;
+            source.start(playTime);
+            source.connect(audioContext.destination);
+            playTime = playTime + buffer.duration;
           });
-      }
+        }
 
-      function convertFloat32ToS16PCM(float32Array) {
+        function convertFloat32ToS16PCM(float32Array) {
           let int16Array = new Int16Array(float32Array.length);
 
           for (let i = 0; i < float32Array.length; i++) {
-              let clampedValue = Math.max(-1, Math.min(1, float32Array[i]));
-              int16Array[i] = clampedValue < 0 ? clampedValue * 32768 : clampedValue * 32767;
+            let clampedValue = Math.max(-1, Math.min(1, float32Array[i]));
+            int16Array[i] =
+              clampedValue < 0 ? clampedValue * 32768 : clampedValue * 32767;
           }
           return int16Array;
-      }
+        }
 
-      function startAudioBtnHandler() {
+        function startAudioBtnHandler() {
           if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-              alert('getUserMedia is not supported in your browser.');
-              return;
+            alert("getUserMedia is not supported in your browser.");
+            return;
           }
 
-          startBtn.disabled = true;
-          stopBtn.disabled = false;
-
-          audioContext = new (window.AudioContext || window.webkitAudioContext)({
+          audioContext = new (window.AudioContext || window.webkitAudioContext)(
+            {
               latencyHint: "interactive",
-              sampleRate: SAMPLE_RATE
-          });
+              sampleRate: SAMPLE_RATE,
+            },
+          );
+
+          data.isListening = true;
 
           isPlaying = true;
 
           initWebSocket();
 
-          navigator.mediaDevices.getUserMedia({
+          navigator.mediaDevices
+            .getUserMedia({
               audio: {
-                  sampleRate: SAMPLE_RATE,
-                  channelCount: NUM_CHANNELS,
-                  autoGainControl: true,
-                  echoCancellation: true,
-                  noiseSuppression: true,
-              }
-          }).then((stream) => {
+                sampleRate: SAMPLE_RATE,
+                channelCount: NUM_CHANNELS,
+                autoGainControl: true,
+                echoCancellation: true,
+                noiseSuppression: true,
+              },
+            })
+            .then((stream) => {
               microphoneStream = stream;
               // 512 is closest thing to 200ms.
               scriptProcessor = audioContext.createScriptProcessor(512, 1, 1);
@@ -152,54 +210,61 @@
               scriptProcessor.connect(audioContext.destination);
 
               scriptProcessor.onaudioprocess = (event) => {
-                  if (!ws) {
-                      return;
-                  }
+                if (!ws) {
+                  return;
+                }
 
-                  const audioData = event.inputBuffer.getChannelData(0);
-                  const pcmS16Array = convertFloat32ToS16PCM(audioData);
-                  const pcmByteArray = new Uint8Array(pcmS16Array.buffer);
-                  const frame = Frame.create({
-                      audio: {
-                          audio: Array.from(pcmByteArray),
-                          sampleRate: SAMPLE_RATE,
-                          numChannels: NUM_CHANNELS
-                      }
-                  });
-                  const encodedFrame = new Uint8Array(Frame.encode(frame).finish());
-                  ws.send(encodedFrame);
+                const audioData = event.inputBuffer.getChannelData(0);
+                const pcmS16Array = convertFloat32ToS16PCM(audioData);
+                const pcmByteArray = new Uint8Array(pcmS16Array.buffer);
+                const frame = Frame.create({
+                  audio: {
+                    audio: Array.from(pcmByteArray),
+                    sampleRate: SAMPLE_RATE,
+                    numChannels: NUM_CHANNELS,
+                  },
+                });
+                const encodedFrame = new Uint8Array(
+                  Frame.encode(frame).finish(),
+                );
+                ws.send(encodedFrame);
               };
-          }).catch((error) => console.error('Error accessing microphone:', error));
-      }
+            })
+            .catch((error) =>
+              console.error("Error accessing microphone:", error),
+            );
+        }
 
-      function stopAudio(closeWebsocket) {
+        function stopAudio(closeWebsocket) {
           playTime = 0;
           isPlaying = false;
-          startBtn.disabled = false;
-          stopBtn.disabled = true;
+          data.isListening = false;
 
           if (ws && closeWebsocket) {
-              ws.close();
-              ws = null;
+            ws.close();
+            ws = null;
           }
 
           if (scriptProcessor) {
-              scriptProcessor.disconnect();
+            scriptProcessor.disconnect();
           }
           if (source) {
-              source.disconnect();
+            source.disconnect();
           }
-      }
+        }
 
-      function stopAudioBtnHandler() {
+        function stopAudioBtnHandler() {
           stopAudio(true);
+        }
+
+        data.startAudio = startAudioBtnHandler;
+        data.stopAudio = stopAudioBtnHandler;
       }
 
-      startBtn.addEventListener('click', startAudioBtnHandler);
-      stopBtn.addEventListener('click', stopAudioBtnHandler);
-      startBtn.disabled = true;
-      stopBtn.disabled = true;
+      document.addEventListener("alpine:initialized", () => {
+        const app = document.querySelector("#app");
+        init(app._x_dataStack[0]);
+      });
     </script>
   </body>
-
 </html>
